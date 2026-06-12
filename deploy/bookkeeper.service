@@ -1,0 +1,17 @@
+[Unit]
+Description=记账小助手 - 采购支出记账系统
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/home/administrator/jmrspace/bookkeeper/venv/bin/python /home/administrator/jmrspace/bookkeeper/backend/main.py
+WorkingDirectory=/home/administrator/jmrspace/bookkeeper
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=default.target

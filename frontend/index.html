@@ -1,0 +1,2103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📦 采购支出记账系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .fade-in { animation: fadeIn 0.25s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .modal-bg { background: rgba(0,0,0,0.45); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .table-row:hover { background: #f8fafc; }
+        .progress-pulse { animation: pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800" x-data="app()" x-init="init()">
+
+<!-- ==================== 登录/注册 ==================== -->
+<div x-show="!user" x-cloak class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <div class="text-5xl mb-3">📦</div>
+            <h1 class="text-2xl font-bold text-gray-800">采购支出记账系统</h1>
+            <p class="text-gray-500 mt-1">单位采购支出记录与管理</p>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                <input x-model="form.username" type="text" @keydown.enter="isLogin ? doLogin() : doRegister()"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    placeholder="请输入用户名">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                <input x-model="form.password" type="password" @keydown.enter="isLogin ? doLogin() : doRegister()"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    placeholder="请输入密码">
+            </div>
+            <div x-show="!isLogin">
+                <label class="block text-sm font-medium text-gray-700 mb-1">邮箱 (可选)</label>
+                <input x-model="form.email" type="email"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    placeholder="用于找回密码">
+            </div>
+        </div>
+
+        <button @click="isLogin ? doLogin() : doRegister()"
+            class="w-full mt-6 bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 transition font-medium"
+            :disabled="loading">
+            <span x-show="!loading" x-text="isLogin ? '登 录' : '注 册'"></span>
+            <span x-show="loading">处理中...</span>
+        </button>
+
+        <p class="text-center mt-4 text-sm text-gray-500">
+            <span x-text="isLogin ? '没有账号？' : '已有账号？'"></span>
+            <a href="#" @click.prevent="isLogin = !isLogin; error=''" class="text-blue-600 hover:underline font-medium"
+                x-text="isLogin ? '去注册' : '去登录'"></a>
+        </p>
+
+        <p x-show="error" class="text-red-500 text-center mt-3 text-sm" x-text="error"></p>
+        <p x-show="regSuccess" class="text-green-600 text-center mt-3 text-sm font-medium" x-text="regSuccess"></p>
+    </div>
+</div>
+
+<!-- ==================== 主界面 ==================== -->
+<div x-show="user" x-cloak>
+    <!-- 顶部导航 -->
+    <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
+        <div class="max-w-[1600px] mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">📦</span>
+                <h1 class="text-lg font-bold text-gray-800">采购支出记账系统 <span x-show="appVersion" class="text-xs font-normal text-gray-400 ml-1" x-text="'v' + appVersion"></span></h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-500" x-text="user?.username"></span>
+                <span x-show="user?.role === 'admin'" class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">管理员</span>
+                <button x-show="user" @click="showChangePwd = true; pwdForm = { old: '', new1: '', new2: '' }; pwdMsg = ''" class="text-sm text-gray-500 hover:text-gray-700 transition">🔑 修改密码</button>
+                <button @click="logout()" class="text-sm text-red-500 hover:text-red-700 transition">退出登录</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 标签页 -->
+    <div class="bg-white border-b border-gray-200">
+        <div class="max-w-[1600px] mx-auto px-4 flex space-x-1 overflow-x-auto">
+            <template x-for="t in tabs" :key="t.key">
+                <button @click="switchTab(t.key)"
+                    :class="tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                    class="px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition"
+                    x-text="t.icon + ' ' + t.label"></button>
+            </template>
+        </div>
+    </div>
+
+    <div class="max-w-[1600px] mx-auto px-4 py-6">
+
+        <!-- ========== 概览 ========== -->
+        <div x-show="tab === 'dashboard'" class="fade-in">
+            <!-- 月份选择 -->
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">📊 月度概览</h2>
+                <div class="flex items-center space-x-3">
+                    <input x-model="dashMonth" type="month" @change="loadDashboard()"
+                        class="px-3 py-1.5 border rounded-lg text-sm">
+                </div>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <div class="text-sm text-gray-500">月度总支出</div>
+                    <div class="text-2xl font-bold text-red-600 mt-1" x-text="'¥' + (dashData.total_expense || 0).toFixed(2)"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <div class="text-sm text-gray-500">记录条数</div>
+                    <div class="text-2xl font-bold text-blue-600 mt-1" x-text="dashData.record_count || 0"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <div class="text-sm text-gray-500">大类数量</div>
+                    <div class="text-2xl font-bold text-green-600 mt-1" x-text="(dashData.by_category || []).length"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <div class="text-sm text-gray-500">经手人数</div>
+                    <div class="text-2xl font-bold text-purple-600 mt-1" x-text="(dashData.by_handler || []).length"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 分类饼图 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4 text-gray-700">支出分类占比</h3>
+                    <div class="flex justify-center">
+                        <canvas id="catChart" width="350" height="350"></canvas>
+                    </div>
+                </div>
+
+                <!-- 分类排行 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4 text-gray-700">分类排行</h3>
+                    <div class="space-y-3">
+                        <template x-for="(item, i) in (dashData.by_category || [])" :key="i">
+                            <div class="flex items-center space-x-3">
+                                <span class="text-sm text-gray-400 w-6 text-right" x-text="i+1"></span>
+                                <span class="w-8 text-center" x-text="item.icon || '📦'"></span>
+                                <span class="flex-1 text-sm" x-text="item.name || '未分类'"></span>
+                                <div class="w-24 bg-gray-100 rounded-full h-2">
+                                    <div class="bg-blue-500 h-2 rounded-full transition-all"
+                                        :style="'width:' + (dashData.total_expense ? (item.total/dashData.total_expense*100) : 0) + '%'"></div>
+                                </div>
+                                <span class="text-sm font-medium text-red-500 w-24 text-right" x-text="'¥'+item.total.toFixed(2)"></span>
+                                <span class="text-xs text-gray-400 w-10 text-right" x-text="item.count+'笔'"></span>
+                            </div>
+                        </template>
+                        <div x-show="!dashData.by_category?.length" class="text-gray-400 text-center py-8">暂无数据</div>
+                    </div>
+                </div>
+
+                <!-- 按付款方式 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4 text-gray-700">💳 按付款方式</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (dashData.by_payment || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                                <span class="text-sm" x-text="item.payment_method || '未填写'"></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="text-sm font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="!dashData.by_payment?.length" class="text-gray-400 text-center py-4">暂无数据</div>
+                    </div>
+                </div>
+
+                <!-- 按经手人 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4 text-gray-700">👤 按经手人</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (dashData.by_handler || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                                <span class="text-sm" x-text="item.handler || '未填写'"></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="text-sm font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="!dashData.by_handler?.length" class="text-gray-400 text-center py-4">暂无数据</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 月度趋势 -->
+            <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 mt-6">
+                <h3 class="font-bold mb-4 text-gray-700">📈 月度趋势</h3>
+                <canvas id="trendChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- ========== 记账 ========== -->
+        <div x-show="tab === 'add'" class="fade-in max-w-5xl mx-auto">
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-xl font-bold mb-6">
+                    <span x-text="editingId ? '✏️ 编辑记录' : '➕ 新增支出'"></span>
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- 大类 (自动检索) -->
+                    <div class="relative" @click.away="acClose('cat')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">大类 <span class="text-red-500">*</span></label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="getCatDisplay()" @input="acSearch('cat', $event.target.value)" @focus="acSearch('cat', $event.target.value)" placeholder="输入搜索大类...">
+                        <div x-show="ac.cat.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.cat.results" :key="item.id">
+                                <div @click="acSelect('cat', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.icon + ' ' + item.name"></div>
+                            </template>
+                            <div x-show="ac.cat.noMatch && ac.cat.query" @click="acAddNew('cat')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.cat.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 物品名称 (自动检索) -->
+                    <div class="relative" @click.away="acClose('itemName')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">物品名称 <span class="text-red-500">*</span></label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="expForm.item_name" @input="acSearch('itemName', $event.target.value); expForm.item_name=$event.target.value" @focus="acSearch('itemName', $event.target.value)" placeholder="输入搜索物品名称...">
+                        <div x-show="ac.itemName.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.itemName.results" :key="item.id">
+                                <div @click="acSelect('itemName', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                            </template>
+                            <div x-show="ac.itemName.noMatch && ac.itemName.query" @click="acAddNew('itemName')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.itemName.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 规格型号 (自动检索) -->
+                    <div class="relative" @click.away="acClose('spec')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">规格型号</label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="expForm.specification" @input="acSearch('spec', $event.target.value); expForm.specification=$event.target.value" @focus="acSearch('spec', $event.target.value)" placeholder="输入搜索规格型号...">
+                        <div x-show="ac.spec.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.spec.results" :key="item.id">
+                                <div @click="acSelect('spec', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                            </template>
+                            <div x-show="ac.spec.noMatch && ac.spec.query" @click="acAddNew('spec')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.spec.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 数量 & 单位 -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">数量 <span class="text-red-500">*</span></label>
+                            <input x-model.number="expForm.quantity" type="number" step="1" min="0" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="1" @input="calcTotal()">
+                        </div>
+                        <div class="relative" @click.away="acClose('unit')">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">单位</label>
+                            <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                :value="expForm.unit" @input="acSearch('unit', $event.target.value); expForm.unit=$event.target.value" @focus="acSearch('unit', $event.target.value)" placeholder="个/箱/包">
+                            <div x-show="ac.unit.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                <template x-for="item in ac.unit.results" :key="item.id">
+                                    <div @click="acSelect('unit', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                                </template>
+                                <div x-show="ac.unit.noMatch && ac.unit.query" @click="acAddNew('unit')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                    ➕ 添加: "<span x-text="ac.unit.query"></span>"
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 单价 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">单价 (元) <span class="text-red-500">*</span></label>
+                        <input x-model.number="expForm.unit_price" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" @input="calcTotal()">
+                    </div>
+                    <!-- 总价 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">总价 (元)</label>
+                        <input x-model.number="expForm.total_price" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="自动计算">
+                    </div>
+                    <!-- 订单日期 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">订单日期</label>
+                        <input x-model="expForm.expense_date" type="date" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <!-- 经手人 (自动检索) -->
+                    <div class="relative" @click.away="acClose('handler')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">经手人 <span class="text-red-500">*</span></label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="expForm.handler" @input="acSearch('handler', $event.target.value); expForm.handler=$event.target.value" @focus="acSearch('handler', $event.target.value)" placeholder="输入搜索经手人...">
+                        <div x-show="ac.handler.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.handler.results" :key="item.id">
+                                <div @click="acSelect('handler', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                            </template>
+                            <div x-show="ac.handler.noMatch && ac.handler.query" @click="acAddNew('handler')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.handler.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 付款方式 (自动检索) -->
+                    <div class="relative" @click.away="acClose('pay')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">付款方式 <span class="text-red-500">*</span></label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="expForm.payment_method" @input="acSearch('pay', $event.target.value); expForm.payment_method=$event.target.value" @focus="acSearch('pay', $event.target.value)" placeholder="输入搜索付款方式...">
+                        <div x-show="ac.pay.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.pay.results" :key="item.id">
+                                <div @click="acSelect('pay', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                            </template>
+                            <div x-show="ac.pay.noMatch && ac.pay.query" @click="acAddNew('pay')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.pay.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 购买渠道 (自动检索) -->
+                    <div class="relative" @click.away="acClose('channel')">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">购买渠道 <span class="text-red-500">*</span></label>
+                        <input type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            :value="expForm.purchase_channel" @input="acSearch('channel', $event.target.value); expForm.purchase_channel=$event.target.value" @focus="acSearch('channel', $event.target.value)" placeholder="输入搜索购买渠道...">
+                        <div x-show="ac.channel.show" class="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <template x-for="item in ac.channel.results" :key="item.id">
+                                <div @click="acSelect('channel', item)" class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" x-text="item.name"></div>
+                            </template>
+                            <div x-show="ac.channel.noMatch && ac.channel.query" @click="acAddNew('channel')" class="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer text-sm border-t font-medium">
+                                ➕ 添加: "<span x-text="ac.channel.query"></span>"
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 发票 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">发票</label>
+                        <select x-model="expForm.invoice" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="">--</option>
+                            <option value="有">有</option>
+                            <option value="无">无</option>
+                        </select>
+                    </div>
+                    <!-- 发票/替代票 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">发票/替代票</label>
+                        <input x-model="expForm.invoice_type" type="text" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="发票或替代票类型">
+                    </div>
+                    <!-- 备注 -->
+                    <div class="md:col-span-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                        <textarea x-model="expForm.note" rows="2" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="可选备注"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex space-x-3 mt-6">
+                    <button @click="saveExpense()" class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 transition font-medium" :disabled="loading">
+                        <span x-text="loading ? '保存中...' : (editingId ? '更新记录' : '保存记录')"></span>
+                    </button>
+                    <button x-show="editingId" @click="resetForm()" class="px-6 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition">取消</button>
+                </div>
+
+                <p x-show="formMsg" class="mt-3 text-sm" :class="formOk ? 'text-green-600' : 'text-red-500'" x-text="formMsg"></p>
+            </div>
+        </div>
+
+        <!-- ========== 明细 ========== -->
+        <div x-show="tab === 'list'" class="fade-in">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+                <!-- 筛选栏 -->
+                <div class="p-4 border-b border-gray-100 flex flex-wrap gap-3 items-end">
+                    <div>
+                        <label class="text-xs text-gray-500">大类</label>
+                        <select x-model="filter.category_id" @change="loadExpenses()" class="block px-3 py-1.5 border rounded-lg text-sm">
+                            <option value="">全部</option>
+                            <template x-for="c in categories" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500">经手人</label>
+                        <select x-model="filter.handler" @change="loadExpenses()" class="block px-3 py-1.5 border rounded-lg text-sm">
+                            <option value="">全部</option>
+                            <template x-for="h in handlers" :key="h.id"><option :value="h.name" x-text="h.name"></option></template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500">付款方式</label>
+                        <select x-model="filter.payment_method" @change="loadExpenses()" class="block px-3 py-1.5 border rounded-lg text-sm">
+                            <option value="">全部</option>
+                            <template x-for="p in payMethods" :key="p.id"><option :value="p.name" x-text="p.name"></option></template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500">购买渠道</label>
+                        <select x-model="filter.purchase_channel" @change="loadExpenses()" class="block px-3 py-1.5 border rounded-lg text-sm">
+                            <option value="">全部</option>
+                            <template x-for="ch in channels" :key="ch.id"><option :value="ch.name" x-text="ch.name"></option></template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500">搜索</label>
+                        <input x-model="filter.search" type="text" @keydown.enter="loadExpenses()" class="block px-3 py-1.5 border rounded-lg text-sm" placeholder="物品名称/规格">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500">订单日期</label>
+                        <div class="flex items-center gap-1">
+                            <input x-model="filter.start_date" type="date" @change="loadExpenses()" class="block px-2 py-1.5 border rounded-lg text-sm w-32">
+                            <span class="text-gray-400">~</span>
+                            <input x-model="filter.end_date" type="date" @change="loadExpenses()" class="block px-2 py-1.5 border rounded-lg text-sm w-32">
+                        </div>
+                    </div>
+                    <button @click="loadExpenses()" class="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">查询</button>
+                    <button @click="resetFilter()" class="px-4 py-1.5 border text-sm rounded-lg hover:bg-gray-50">重置</button>
+                    <div class="relative">
+                        <button @click.stop="showColMenu = !showColMenu" class="px-3 py-1.5 border text-sm rounded-lg hover:bg-gray-50 flex items-center gap-1">⚙️ 列</button>
+                        <div x-show="showColMenu" x-cloak @click.outside="showColMenu = false" class="absolute right-0 top-full mt-1 bg-white border rounded-xl shadow-lg p-3 z-50 min-w-[140px]">
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.inventory_in" @change="saveColSettings()" class="rounded"> 入库
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.booked" @change="saveColSettings()" class="rounded"> 入账
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.invoice" @change="saveColSettings()" class="rounded"> 发票
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.invoice_type" @change="saveColSettings()" class="rounded"> 发票类型
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.note" @change="saveColSettings()" class="rounded"> 备注
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.accounting_date" @change="saveColSettings()" class="rounded"> 登记日期
+                            </label>
+                            <label class="flex items-center gap-2 text-sm py-1 cursor-pointer hover:bg-gray-50 px-2 -mx-2 rounded">
+                                <input type="checkbox" x-model="colSettings.creator_name" @change="saveColSettings()" class="rounded"> 录入人
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex-1"></div>
+                    <button @click="showQuickAdd = !showQuickAdd; if(showQuickAdd) resetForm()" class="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700" :class="showQuickAdd ? 'bg-blue-700' : ''">➕ 新增</button>
+                    <button @click="showImport = true" class="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700">📥 导入Excel</button>
+                    <button x-show="user?.role === 'admin'" @click="batchReview()" class="px-4 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700">✅ 批量审核</button>
+                    <button @click="batchDelete()" x-show="selectedIds.length > 0" class="px-4 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">🗑️ 批量删除 (<span x-text="selectedIds.length"></span>)</button>
+                </div>
+
+                <!-- 快速新增 -->
+                <div x-show="showQuickAdd" x-cloak class="p-4 border-b border-gray-100 bg-blue-50/50">
+                    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-500">大类</label>
+                            <select x-model="expForm.category_id" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                                <option value="">-</option>
+                                <template x-for="c in categories" :key="c.id"><option :value="c.id" x-text="c.icon + ' ' + c.name"></option></template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">物品名称</label>
+                            <input x-model="expForm.item_name" type="text" class="block w-full px-2 py-1.5 border rounded-lg text-sm" placeholder="名称">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">规格</label>
+                            <input x-model="expForm.specification" type="text" class="block w-full px-2 py-1.5 border rounded-lg text-sm" placeholder="规格">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">数量</label>
+                            <input x-model.number="expForm.quantity" type="number" step="1" min="0" class="block w-full px-2 py-1.5 border rounded-lg text-sm" @input="calcTotal()">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">单位</label>
+                            <select x-model="expForm.unit" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                                <option value="">-</option>
+                                <template x-for="u in units" :key="u.id"><option :value="u.name" x-text="u.name"></option></template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">单价</label>
+                            <input x-model.number="expForm.unit_price" type="number" step="0.01" min="0" class="block w-full px-2 py-1.5 border rounded-lg text-sm" @input="calcTotal()">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">总价</label>
+                            <input x-model.number="expForm.total_price" type="number" step="0.01" min="0" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">订单日期</label>
+                            <input x-model="expForm.expense_date" type="date" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">经手人</label>
+                            <select x-model="expForm.handler" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                                <option value="">-</option>
+                                <template x-for="h in handlers" :key="h.id"><option :value="h.name" x-text="h.name"></option></template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">付款方式</label>
+                            <select x-model="expForm.payment_method" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                                <option value="">-</option>
+                                <template x-for="p in payMethods" :key="p.id"><option :value="p.name" x-text="p.name"></option></template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">购买渠道</label>
+                            <select x-model="expForm.purchase_channel" class="block w-full px-2 py-1.5 border rounded-lg text-sm">
+                                <option value="">-</option>
+                                <template x-for="ch in channels" :key="ch.id"><option :value="ch.name" x-text="ch.name"></option></template>
+                            </select>
+                        </div>
+                        <div class="flex items-end space-x-2">
+                            <button @click="saveQuickExpense()" class="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700" :disabled="loading">保存</button>
+                            <button @click="showQuickAdd = false" class="px-4 py-1.5 border text-sm rounded-lg hover:bg-gray-50">取消</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 表格 -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50 text-gray-600 sticky top-0">
+                            <tr>
+                                <th class="px-2 py-2.5 font-medium">
+                                    <input type="checkbox"
+                                        :checked="expenses.items?.length > 0 && selectedIds.length === expenses.items.length"
+                                        @change="selectedIds = $event.target.checked ? expenses.items.map(i => i.id) : []"
+                                        class="rounded">
+                                </th>
+                                <th @click="toggleSort('expense_date')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">订单日期 <span class="text-gray-400 text-xs" x-text="sortIcon('expense_date')"></span></th>
+                                <th @click="toggleSort('category_name')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">大类 <span class="text-red-500">*</span> <span class="text-gray-400 text-xs" x-text="sortIcon('category_name')"></span></th>
+                                <th @click="toggleSort('item_name')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">物品名称 <span class="text-red-500">*</span> <span class="text-gray-400 text-xs" x-text="sortIcon('item_name')"></span></th>
+                                <th @click="toggleSort('specification')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">规格型号 <span class="text-gray-400 text-xs" x-text="sortIcon('specification')"></span></th>
+                                <th @click="toggleSort('quantity')" class="px-2 py-2.5 text-right font-medium cursor-pointer hover:bg-gray-100 select-none">数量 <span class="text-gray-400 text-xs" x-text="sortIcon('quantity')"></span></th>
+                                <th class="px-2 py-2.5 text-left font-medium">单位</th>
+                                <th @click="toggleSort('unit_price')" class="px-2 py-2.5 text-right font-medium cursor-pointer hover:bg-gray-100 select-none">单价 <span class="text-gray-400 text-xs" x-text="sortIcon('unit_price')"></span></th>
+                                <th @click="toggleSort('total_price')" class="px-2 py-2.5 text-right font-medium cursor-pointer hover:bg-gray-100 select-none">总价 <span class="text-gray-400 text-xs" x-text="sortIcon('total_price')"></span></th>
+                                <th @click="toggleSort('handler')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">经手人 <span class="text-red-500">*</span> <span class="text-gray-400 text-xs" x-text="sortIcon('handler')"></span></th>
+                                <th @click="toggleSort('payment_method')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">付款方式 <span class="text-red-500">*</span> <span class="text-gray-400 text-xs" x-text="sortIcon('payment_method')"></span></th>
+                                <th @click="toggleSort('purchase_channel')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">购买渠道 <span class="text-gray-400 text-xs" x-text="sortIcon('purchase_channel')"></span></th>
+                                <th x-show="colSettings.inventory_in" class="px-2 py-2.5 text-left font-medium">入库</th>
+                                <th x-show="colSettings.booked" class="px-2 py-2.5 text-left font-medium">入账</th>
+                                <th x-show="colSettings.invoice" class="px-2 py-2.5 text-left font-medium">发票</th>
+                                <th x-show="colSettings.invoice_type" class="px-2 py-2.5 text-left font-medium">发票类型</th>
+                                <th x-show="colSettings.note" class="px-2 py-2.5 text-left font-medium">备注</th>
+                                <th x-show="colSettings.accounting_date" @click="toggleSort('accounting_date')" class="px-2 py-2.5 text-left font-medium cursor-pointer hover:bg-gray-100 select-none">登记日期 <span class="text-gray-400 text-xs" x-text="sortIcon('accounting_date')"></span></th>
+                                <th x-show="colSettings.creator_name" class="px-2 py-2.5 text-left font-medium">录入人</th>
+                                <th @click="toggleSort('reviewed')" class="px-2 py-2.5 text-center font-medium cursor-pointer hover:bg-gray-100 select-none">状态 <span class="text-gray-400 text-xs" x-text="sortIcon('reviewed')"></span></th>
+                                <th class="px-2 py-2.5 text-center font-medium">操作</th>
+                            </tr>
+                        </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        <template x-for="item in expenses.items" :key="item.id">
+                                            <tr class="hover:bg-blue-50/30 text-sm group" :class="{'bg-gray-100/60': item.reviewed}">
+                                                <!-- 勾选 -->
+                                                <td class="px-1 py-1 text-center">
+                                                    <input type="checkbox" :value="item.id" x-model="selectedIds" class="rounded">
+                                                </td>
+                                                <!-- 订单日期 -->
+                                                <td class="px-1 py-1">
+                                                    <input type="date" :value="item.expense_date" @change="item.expense_date = $event.target.value; inlineSave(item, 'expense_date')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs">
+                                                </td>
+                                                <!-- 大类 -->
+                                                <td class="px-1 py-1">
+                                                    <select :value="item.category_id" @change="item.category_id = Number($event.target.value); inlineSave(item, 'category_id')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="">-</option>
+                                                        <template x-for="cat in categories" :key="cat.id">
+                                                            <option :value="cat.id" x-text="cat.icon + ' ' + cat.name" :selected="cat.id == item.category_id"></option>
+                                                        </template>
+                                                    </select>
+                                                </td>
+                                                <!-- 物品名称 -->
+                                                <td class="px-1 py-1">
+                                                    <input type="text" :value="item.item_name"
+                                                        @change="item.item_name = $event.target.value; inlineSave(item, 'item_name')"
+                                                        @keydown.enter="$event.target.blur()"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs font-medium">
+                                                </td>
+                                                <!-- 规格型号 -->
+                                                <td class="px-1 py-1">
+                                                    <input type="text" :value="item.specification || ''"
+                                                        @change="item.specification = $event.target.value; inlineSave(item, 'specification')"
+                                                        @keydown.enter="$event.target.blur()"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-20 border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs">
+                                                </td>
+                                                <!-- 数量 -->
+                                                <td class="px-1 py-1">
+                                                    <input type="number" step="1" :value="item.quantity"
+                                                        @change="item.quantity = Number($event.target.value); onQtyPriceChange(item)"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-16 border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs text-right">
+                                                </td>
+                                                <!-- 单位 -->
+                                                <td class="px-1 py-1">
+                                                    <select :value="item.unit" @change="item.unit = $event.target.value; inlineSave(item, 'unit')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="">-</option>
+                                                        <template x-for="u in units" :key="u.id"><option :value="u.name" x-text="u.name" :selected="u.name === item.unit"></option></template>
+                                                    </select>
+                                                </td>
+                                                <!-- 单价 -->
+                                                <td class="px-1 py-1">
+                                                    <input type="number" step="0.01" :value="item.unit_price"
+                                                        @change="item.unit_price = Number($event.target.value); onQtyPriceChange(item)"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-20 border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs text-right">
+                                                </td>
+                                                <!-- 总价 (不可编辑，自动计算) -->
+                                                <td class="px-2 py-1.5 text-right font-medium text-xs text-red-600" x-text="'¥' + (item.quantity * item.unit_price).toFixed(2)"></td>
+                                                <!-- 经手人 -->
+                                                <td class="px-1 py-1">
+                                                    <select :value="item.handler" @change="item.handler = $event.target.value; inlineSave(item, 'handler')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="">-</option>
+                                                        <template x-for="h in handlers" :key="h.id"><option :value="h.name" x-text="h.name" :selected="h.name === item.handler"></option></template>
+                                                    </select>
+                                                </td>
+                                                <!-- 付款方式 -->
+                                                <td class="px-1 py-1">
+                                                    <select :value="item.payment_method" @change="item.payment_method = $event.target.value; inlineSave(item, 'payment_method')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="">-</option>
+                                                        <template x-for="pm in payMethods" :key="pm.id"><option :value="pm.name" x-text="pm.name" :selected="pm.name === item.payment_method"></option></template>
+                                                    </select>
+                                                </td>
+                                                <!-- 购买渠道 -->
+                                                <td class="px-1 py-1">
+                                                    <select :value="item.purchase_channel" @change="item.purchase_channel = $event.target.value; inlineSave(item, 'purchase_channel')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="">-</option>
+                                                        <template x-for="ch in channels" :key="ch.id"><option :value="ch.name" x-text="ch.name" :selected="ch.name === item.purchase_channel"></option></template>
+                                                    </select>
+                                                </td>
+                                                <!-- 入库 -->
+                                                <td x-show="colSettings.inventory_in" class="px-1 py-1">
+                                                    <select :value="item.inventory_in || '否'" @change="item.inventory_in = $event.target.value; inlineSave(item, 'inventory_in')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="是">是</option>
+                                                        <option value="否">否</option>
+                                                    </select>
+                                                </td>
+                                                <!-- 入账 -->
+                                                <td x-show="colSettings.booked" class="px-1 py-1">
+                                                    <select :value="item.booked || '否'" @change="item.booked = $event.target.value; inlineSave(item, 'booked')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="是">是</option>
+                                                        <option value="否">否</option>
+                                                    </select>
+                                                </td>
+                                                <!-- 发票 -->
+                                                <td x-show="colSettings.invoice" class="px-1 py-1">
+                                                    <select :value="item.invoice || '无'" @change="item.invoice = $event.target.value; inlineSave(item, 'invoice')"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-full border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs cursor-pointer">
+                                                        <option value="有">有</option>
+                                                        <option value="无">无</option>
+                                                    </select>
+                                                </td>
+                                                <!-- 发票类型 -->
+                                                <td x-show="colSettings.invoice_type" class="px-1 py-1">
+                                                    <input type="text" :value="item.invoice_type || ''"
+                                                        @change="item.invoice_type = $event.target.value; inlineSave(item, 'invoice_type')"
+                                                        @keydown.enter="$event.target.blur()"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-16 border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs">
+                                                </td>
+                                                <!-- 备注 -->
+                                                <td x-show="colSettings.note" class="px-1 py-1">
+                                                    <input type="text" :value="item.note || ''"
+                                                        @change="item.note = $event.target.value; inlineSave(item, 'note')"
+                                                        @keydown.enter="$event.target.blur()"
+                                                        :disabled="Boolean(item.reviewed)"
+                                                        class="w-20 border-0 bg-transparent hover:bg-blue-50 focus:bg-white focus:border focus:border-blue-400 rounded px-1 py-0.5 text-xs">
+                                                </td>
+                                                <!-- 登记日期 (不可编辑) -->
+                                                <td x-show="colSettings.accounting_date" class="px-2 py-1.5 text-xs text-gray-500" x-text="item.accounting_date || '-'"></td>
+                                                <!-- 录入人 (不可编辑) -->
+                                                <td x-show="colSettings.creator_name" class="px-2 py-1.5 text-xs text-gray-500" x-text="item.creator_name || '-'"></td>
+                                                <!-- 状态 -->
+                                                <td class="px-2 py-1.5 text-center">
+                                                    <span x-show="item.reviewed" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">已审</span>
+                                                    <span x-show="!item.reviewed" class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">待审</span>
+                                                </td>
+                                                <!-- 操作 -->
+                                                <td class="px-2 py-1.5 text-center whitespace-nowrap">
+                                                    <button x-show="!item.reviewed" @click="deleteExpense(item.id)" class="text-red-400 hover:text-red-600 mr-1" title="删除">🗑️</button>
+                                                    <button x-show="user?.role === 'admin' && !item.reviewed" @click="reviewItem(item.id)" class="text-green-500 hover:text-green-700" title="审核">✅</button>
+                                                    <button x-show="user?.role === 'admin' && item.reviewed" @click="unreviewItem(item.id)" class="text-orange-500 hover:text-orange-700" title="取消审核">↩️</button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                    <tfoot class="bg-gray-50">
+                                        <tr>
+                                            <td colspan="11" class="px-3 py-2 text-right text-gray-600">本页合计：</td>
+                                            <td class="px-3 py-2 text-right text-red-600 font-medium" x-text="'¥'+pageTotal.toFixed(2)"></td>
+                                            <td colspan="9"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                    <div x-show="!expenses.items?.length" class="text-center py-12 text-gray-400">暂无记录，点击"记账"添加或"导入Excel"导入</div>
+                </div>
+
+                <!-- 分页 -->
+                <div class="p-4 border-t border-gray-100 flex justify-between items-center text-sm">
+                    <span class="text-gray-500" x-text="'共 ' + expenses.total + ' 条记录'"></span>
+                    <div class="flex items-center space-x-2">
+                        <button @click="filter.page > 1 && (filter.page--, loadExpenses())" :disabled="filter.page <= 1"
+                            class="px-3 py-1 border rounded disabled:opacity-40 hover:bg-gray-50">上一页</button>
+                        <span class="text-gray-600" x-text="filter.page + ' / ' + Math.max(1, Math.ceil(expenses.total / filter.page_size))"></span>
+                        <button @click="filter.page < Math.ceil(expenses.total / filter.page_size) && (filter.page++, loadExpenses())"
+                            :disabled="filter.page >= Math.ceil(expenses.total / filter.page_size)"
+                            class="px-3 py-1 border rounded disabled:opacity-40 hover:bg-gray-50">下一页</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 统计 ========== -->
+        <div x-show="tab === 'stats'" class="fade-in">
+             <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">📈 统计报表</h2>
+                <div class="flex items-center space-x-3">
+                    <label class="text-xs text-gray-500">订单月份</label>
+                    <input x-model="statsMonth" type="month" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <button @click="loadStats()" class="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">查询</button>
+                    <button @click="exportReport('excel')" :disabled="exporting" class="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50">
+                        <span x-text="exporting ? '导出中...' : '📥 导出Excel'"></span>
+                    </button>
+                    <button @click="exportReport('pdf')" :disabled="exporting" class="px-4 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50">
+                        <span x-text="exporting ? '导出中...' : '📄 导出PDF'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100 mb-6">
+                <h3 class="font-bold mb-2">月度汇总：<span x-text="statsMonth" class="text-blue-600"></span></h3>
+                <div class="text-3xl font-bold text-red-600" x-text="'¥' + (statsData.total_expense || 0).toFixed(2)"></div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4">按大类统计</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (statsData.by_category || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50">
+                                <span><span x-text="item.icon || '📦'"></span> <span x-text="item.name || '未分类'"></span></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4">按付款方式统计</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (statsData.by_payment || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50">
+                                <span x-text="item.payment_method || '未填写'"></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4">按经手人统计</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (statsData.by_handler || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50">
+                                <span x-text="item.handler || '未填写'"></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-4">按购买渠道统计</h3>
+                    <div class="space-y-2">
+                        <template x-for="(item, i) in (statsData.by_channel || [])" :key="i">
+                            <div class="flex items-center justify-between py-2 border-b border-gray-50">
+                                <span x-text="item.purchase_channel || '未填写'"></span>
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-xs text-gray-400" x-text="item.count+'笔'"></span>
+                                    <span class="font-medium text-red-500" x-text="'¥'+item.total.toFixed(2)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 管理 ========== -->
+        <div x-show="tab === 'manage'" class="fade-in">
+            <h2 class="text-xl font-bold mb-6">⚙️ 数据管理</h2>
+
+            <!-- 用户管理（管理员可见） -->
+            <div x-show="user?.role === 'admin'" class="mb-6" x-init="$watch('tab', v => { if(v==='manage') loadUsers() })">
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-lg">👥 用户管理</h3>
+                        <span x-show="pendingCount > 0" class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full" x-text="pendingCount + ' 待审核'"></span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="px-3 py-2 text-left font-medium">ID</th>
+                                    <th class="px-3 py-2 text-left font-medium">用户名</th>
+                                    <th class="px-3 py-2 text-left font-medium">密码</th>
+                                    <th class="px-3 py-2 text-left font-medium">角色</th>
+                                    <th class="px-3 py-2 text-left font-medium">状态</th>
+                                    <th class="px-3 py-2 text-left font-medium">注册时间</th>
+                                    <th class="px-3 py-2 text-center font-medium">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <template x-for="u in users" :key="u.id">
+                                    <tr class="hover:bg-gray-50" :class="{'opacity-50': u.status === 'disabled'}">
+                                        <td class="px-3 py-2" x-text="u.id"></td>
+                                        <td class="px-3 py-2 font-medium" x-text="u.username"></td>
+                                        <td class="px-3 py-2 text-xs text-gray-500">
+                                            <span x-show="u.raw_password" x-text="u.raw_password" class="cursor-pointer"></span>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <span x-show="u.role === 'admin'" class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">管理员</span>
+                                            <span x-show="u.role !== 'admin'" class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">普通用户</span>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <span x-show="u.status === 'approved'" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">已通过</span>
+                                            <span x-show="u.status === 'pending'" class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">待审核</span>
+                                            <span x-show="u.status === 'disabled'" class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">已禁用</span>
+                                        </td>
+                                        <td class="px-3 py-2 text-gray-500 text-xs" x-text="u.created_at"></td>
+                                        <td class="px-3 py-2 text-center whitespace-nowrap space-x-1">
+                                            <button x-show="u.status === 'pending'" @click="approveUser(u.id)" class="text-green-600 hover:text-green-800 text-xs px-2 py-1 bg-green-50 rounded">✅ 通过</button>
+                                            <button x-show="u.status === 'approved' && u.role !== 'admin'" @click="disableUser(u.id, u.username)" class="text-orange-500 hover:text-orange-700 text-xs px-2 py-1 bg-orange-50 rounded">⛔ 禁用</button>
+                                            <button x-show="u.status === 'disabled'" @click="enableUser(u.id, u.username)" class="text-green-600 hover:text-green-800 text-xs px-2 py-1 bg-green-50 rounded">✅ 启用</button>
+                                            <button x-show="u.role !== 'admin'" @click="resetPwd(u.id)" class="text-blue-500 hover:text-blue-700 text-xs px-2 py-1 bg-blue-50 rounded">🔑 重置密码</button>
+                                            <button x-show="u.role !== 'admin'" @click="deleteUser(u.id, u.username)" class="text-red-500 hover:text-red-700 text-xs px-2 py-1 bg-red-50 rounded">🗑️ 删除</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- 大类管理 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">📦 大类管理</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="c in categories" :key="c.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span><span x-text="c.icon"></span> <span x-text="c.name"></span>
+                                    <span x-show="c.is_system" class="text-xs text-gray-400">(系统)</span></span>
+                                <button x-show="!c.is_system" @click="deleteItem('categories', c.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newCat.name" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新大类名称">
+                        <input x-model="newCat.icon" class="w-16 px-3 py-1.5 border rounded-lg text-sm" placeholder="图标">
+                        <button @click="addItem('categories')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 付款方式 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">💳 付款方式</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="p in payMethods" :key="p.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span x-text="p.name">
+                                </span>
+                                <button x-show="!p.is_system" @click="deleteItem('payment-methods', p.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newPM" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新付款方式">
+                        <button @click="addItem('payment-methods')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 购买渠道 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">🏪 购买渠道</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="ch in channels" :key="ch.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span x-text="ch.name"></span>
+                                <button x-show="!ch.is_system" @click="deleteItem('channels', ch.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newCh" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新购买渠道">
+                        <button @click="addItem('channels')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 经手人 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">👤 经手人</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="h in handlers" :key="h.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span x-text="h.name"></span>
+                                <button x-show="!h.is_system" @click="deleteItem('handlers', h.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newHandler" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新经手人">
+                        <button @click="addItem('handlers')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 物品名称 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">📝 物品名称</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="item in itemNames" :key="item.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span x-text="item.name"></span>
+                                <button x-show="!item.is_system" @click="deleteItem('item-names', item.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newItemName" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新物品名称">
+                        <button @click="addItem('item-names')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 规格型号 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">📏 规格型号</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="item in specifications" :key="item.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span x-text="item.name"></span>
+                                <button x-show="!item.is_system" @click="deleteItem('specifications', item.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newSpec" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新规格型号">
+                        <button @click="addItem('specifications')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+
+                <!-- 单位 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+                    <h3 class="font-bold mb-3">⚖️ 单位</h3>
+                    <div class="space-y-2 mb-3 max-h-60 overflow-y-auto">
+                        <template x-for="u in units" :key="u.id">
+                            <div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded">
+                                <span><span x-text="u.name"></span>
+                                    <span x-show="u.is_system" class="text-xs text-gray-400">(系统)</span></span>
+                                <button x-show="!u.is_system" @click="deleteItem('units', u.id)" class="text-red-400 hover:text-red-600 text-xs">删除</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex space-x-2">
+                        <input x-model="newUnit" class="flex-1 px-3 py-1.5 border rounded-lg text-sm" placeholder="新单位">
+                        <button @click="addItem('units')" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg">添加</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 备份 ========== -->
+        <div x-show="tab === 'backup'" class="fade-in max-w-2xl mx-auto space-y-6">
+            <!-- 本地备份 -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-xl font-bold mb-2">💾 本地备份</h2>
+                <p class="text-sm text-gray-500 mb-4">
+                    数据库大小：<span class="font-mono" x-text="(localBackup.db_size / 1024).toFixed(1) + ' KB'"></span>
+                    <span x-show="localBackup.last_backup" class="ml-4">
+                        上次备份：<span class="font-mono" x-text="localBackup.last_backup"></span>
+                    </span>
+                </p>
+                <div class="flex flex-wrap gap-3">
+                    <button @click="downloadDb()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">📥 下载数据库</button>
+                    <label class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer">
+                        📤 上传恢复
+                        <input type="file" accept=".db" class="hidden" @change="uploadDb($event)">
+                    </label>
+                </div>
+                <p x-show="backupUploading" class="mt-2 text-sm text-gray-500">上传中，请稍候...</p>
+                <p x-show="localBackupMsg" class="mt-2 text-sm" :class="localBackupOk ? 'text-green-600' : 'text-red-500'" x-text="localBackupMsg"></p>
+                <!-- .bak 历史文件 -->
+                <template x-if="localBackup.bak_files && localBackup.bak_files.length > 0">
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-2">历史备份文件</h3>
+                        <div class="space-y-1 max-h-48 overflow-y-auto">
+                            <template x-for="f in localBackup.bak_files" :key="f.filename">
+                                <div class="flex items-center justify-between py-1 px-2 hover:bg-gray-50 rounded text-sm">
+                                    <span class="font-mono truncate" x-text="f.filename"></span>
+                                    <span class="text-gray-400 ml-2" x-text="(f.size / 1024).toFixed(1) + ' KB'"></span>
+                                    <div class="flex gap-2 ml-3">
+                                        <button @click="downloadBak(f.filename)" class="text-blue-500 hover:text-blue-700">下载</button>
+                                        <button @click="deleteBak(f.filename)" class="text-red-400 hover:text-red-600">删除</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- 云备份 -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-xl font-bold mb-2">☁️ 云端备份 (WebDAV)</h2>
+                <p class="text-sm text-gray-500 mb-6">支持坚果云、NextCloud 等 WebDAV 服务</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">WebDAV 地址</label>
+                        <input x-model="backupCfg.webdav_url" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="https://dav.jianguoyun.com/dav/">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                        <input x-model="backupCfg.webdav_user" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="your@email.com">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">密码/应用密钥</label>
+                        <input x-model="backupCfg.webdav_password" type="password" class="w-full px-3 py-2 border rounded-lg" placeholder="WebDAV 应用密钥">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">远程路径</label>
+                        <input x-model="backupCfg.remote_path" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="/bookkeeper/">
+                    </div>
+                </div>
+
+                <div class="flex space-x-3 mt-6">
+                    <button @click="saveBackupCfg()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">保存配置</button>
+                    <button @click="doBackup()" class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">立即备份</button>
+                    <button @click="doRestore()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">恢复数据</button>
+                </div>
+
+                <p x-show="backupMsg" class="mt-3 text-sm text-center" :class="backupOk ? 'text-green-600' : 'text-red-500'" x-text="backupMsg"></p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- ==================== Excel 导入弹窗 ==================== -->
+<div x-show="showImport" x-cloak class="fixed inset-0 modal-bg flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md fade-in">
+        <h3 class="text-lg font-bold mb-4">📥 导入 Excel 文件</h3>
+        <p class="text-sm text-gray-500 mb-4">支持 .xlsx / .xlsb 格式，列名需包含：大类、物品名称、规格型号、数量、单位、单价、总价、时间(日)、经手人、付款方式、购买渠道、登记日期 等</p>
+        <input type="file" accept=".xlsx,.xlsb,.xls" @change="importFile = $event.target.files[0]; importProgress = 0; importStatus = ''" class="w-full mb-4 text-sm" :disabled="loading">
+        <!-- 进度条 -->
+        <div x-show="loading" class="mb-4">
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div :class="'bg-green-500 h-2.5 rounded-full transition-all duration-300' + (importProgress === 100 && loading ? ' progress-pulse' : '')" :style="'width: ' + importProgress + '%'"></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-1 text-center" x-text="importStatus"></p>
+        </div>
+        <div class="flex space-x-3">
+            <button @click="showImport = false; importFile = null" class="flex-1 py-2 border rounded-lg hover:bg-gray-50" :disabled="loading">取消</button>
+            <button @click="doImport()" class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700" :disabled="!importFile || loading">
+                <span x-text="loading ? '导入中...' : '开始导入'"></span>
+            </button>
+        </div>
+        <p x-show="importMsg" class="mt-3 text-sm" :class="importOk ? 'text-green-600' : 'text-red-500'" x-text="importMsg"></p>
+    </div>
+</div>
+
+<!-- ==================== 修改密码弹窗 ==================== -->
+<div x-show="showChangePwd" x-cloak class="fixed inset-0 modal-bg flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm fade-in">
+        <h3 class="text-lg font-bold mb-4">🔑 修改密码</h3>
+        <div class="space-y-3">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">原密码</label>
+                <input x-model="pwdForm.old" type="password" class="w-full px-3 py-2 border rounded-lg" placeholder="输入原密码">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+                <input x-model="pwdForm.new1" type="password" class="w-full px-3 py-2 border rounded-lg" placeholder="输入新密码">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">确认密码</label>
+                <input x-model="pwdForm.new2" type="password" class="w-full px-3 py-2 border rounded-lg" placeholder="再次输入新密码">
+            </div>
+        </div>
+        <p x-show="pwdMsg" class="mt-3 text-sm text-center" :class="pwdOk ? 'text-green-600' : 'text-red-500'" x-text="pwdMsg"></p>
+        <div class="flex space-x-3 mt-4">
+            <button @click="showChangePwd = false; pwdMsg = ''" class="flex-1 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+            <button @click="doChangePwd()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">确认修改</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function app() {
+    return {
+        user: null,
+        tab: 'dashboard',
+        isLogin: true,
+        error: '',
+        regSuccess: '',
+        loading: false,
+        form: { username: '', password: '', email: '' },
+        showQuickAdd: false,
+        appVersion: '',
+
+        // 修改密码
+        showChangePwd: false,
+        pwdForm: { old: '', new1: '', new2: '' },
+        pwdMsg: '',
+        pwdOk: false,
+
+        tabs: [
+            { key: 'dashboard', label: '概览', icon: '📊' },
+            { key: 'add', label: '记账', icon: '✏️' },
+            { key: 'list', label: '明细', icon: '📋' },
+            { key: 'stats', label: '统计', icon: '📈' },
+            { key: 'manage', label: '管理', icon: '⚙️' },
+            { key: 'backup', label: '备份', icon: '☁️' },
+        ],
+
+        // 数据
+        categories: [],
+        payMethods: [],
+        channels: [],
+        handlers: [],
+        itemNames: [],
+        specifications: [],
+        units: [],
+
+        // 自动检索状态
+        ac: {
+            cat: { show: false, query: '', results: [], noMatch: false },
+            itemName: { show: false, query: '', results: [], noMatch: false },
+            spec: { show: false, query: '', results: [], noMatch: false },
+            unit: { show: false, query: '', results: [], noMatch: false },
+            handler: { show: false, query: '', results: [], noMatch: false },
+            pay: { show: false, query: '', results: [], noMatch: false },
+            channel: { show: false, query: '', results: [], noMatch: false },
+        },
+
+        // 概览
+        dashMonth: new Date().toISOString().slice(0, 7),
+        dashData: {},
+        catChart: null,
+        trendChart: null,
+
+        // 记账表单
+        expForm: {},
+        editingId: null,
+        formMsg: '',
+        formOk: false,
+
+        // 明细
+        expenses: { items: [], total: 0 },
+        filter: { page: 1, page_size: 30, category_id: '', handler: '', payment_method: '', purchase_channel: '', search: '', start_date: '', end_date: '' },
+        sortField: '',
+        sortDir: 'desc',
+        selectedIds: [],
+        colSettings: {
+            inventory_in: true,
+            booked: true,
+            invoice: true,
+            invoice_type: true,
+            note: true,
+            accounting_date: true,
+            creator_name: true,
+        },
+        showColMenu: false,
+        colMenuBtn: null,
+
+        // 统计
+        statsMonth: new Date().toISOString().slice(0, 7),
+        statsData: {},
+
+        // 管理
+        newCat: { name: '', icon: '📦' },
+        newPM: '',
+        newCh: '',
+        newHandler: '',
+        newItemName: '',
+        newSpec: '',
+        newUnit: '',
+        users: [],
+
+        // 导入
+        showImport: false,
+        importFile: null,
+        importMsg: '',
+        importOk: false,
+        importProgress: 0,
+        importStatus: '',
+        exporting: false,
+
+        // 备份
+        backupCfg: { webdav_url: '', webdav_user: '', webdav_password: '', remote_path: '/bookkeeper/' },
+        backupMsg: '',
+        backupOk: false,
+        localBackup: { db_size: 0, last_backup: null, bak_files: [] },
+        localBackupMsg: '',
+        localBackupOk: false,
+        backupUploading: false,
+
+        // ==================== 初始化 ====================
+        init() {
+            const token = localStorage.getItem('token');
+            const userData = localStorage.getItem('user');
+            if (token && userData) {
+                this.user = JSON.parse(userData);
+                this.loadBaseData();
+                this.loadDashboard();
+                // 验证token并更新用户信息
+                this.api('GET', '/api/me').then(data => {
+                    if (data) {
+                        this.user = { user_id: data.user_id, username: data.username, role: data.role };
+                        localStorage.setItem('user', JSON.stringify(this.user));
+                    }
+                }).catch(() => {});
+            }
+            this.resetForm();
+            this.loadColSettings();
+            this.loadBackupStatus();
+            this.api('GET', '/api/version').then(data => {
+                if (data?.version) this.appVersion = data.version;
+            }).catch(() => {});
+        },
+
+        async loadColSettings() {
+            try {
+                const data = await this.api('GET', '/api/settings/colSettings');
+                if (data?.value) Object.assign(this.colSettings, data.value);
+            } catch (e) {}
+        },
+
+        async saveColSettings() {
+            try {
+                await this.api('PUT', '/api/settings/colSettings', { value: this.colSettings });
+            } catch (e) {}
+        },
+
+        get headers() {
+            const token = localStorage.getItem('token');
+            return { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+        },
+
+        async api(method, url, body) {
+            const opts = { method, headers: this.headers };
+            if (body) opts.body = JSON.stringify(body);
+            const res = await fetch(url, opts);
+            if (res.status === 401) {
+                if (localStorage.getItem('token')) { this.logout(); return null; }
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || '请求失败');
+            }
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || '请求失败');
+            }
+            return await res.json();
+        },
+
+        // ==================== 登录/注册 ====================
+        async doLogin() {
+            this.error = '';
+            try {
+                const data = await this.api('POST', '/api/login', { username: this.form.username, password: this.form.password });
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify({ user_id: data.user_id, username: data.username, role: data.role }));
+                this.user = { user_id: data.user_id, username: data.username, role: data.role };
+                this.loadBaseData();
+                this.loadDashboard();
+                this.loadColSettings();
+            } catch (e) {
+                this.error = e.message;
+            }
+        },
+
+        async doRegister() {
+            this.error = '';
+            this.regSuccess = '';
+            try {
+                const data = await this.api('POST', '/api/register', this.form);
+                if (data.status === 'pending') {
+                    this.regSuccess = data.message || '注册成功，请等待管理员审核后再登录';
+                    this.isLogin = true;
+                    return;
+                }
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify({ user_id: data.user_id, username: data.username, role: data.role }));
+                this.user = { user_id: data.user_id, username: data.username, role: data.role };
+                this.loadBaseData();
+                this.loadDashboard();
+                this.loadColSettings();
+            } catch (e) { this.error = e.message; }
+        },
+
+        logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            this.user = null;
+        },
+
+        // ==================== 基础数据 ====================
+        async loadBaseData() {
+            try {
+                const [cats, pms, chs, hds, itns, specs, unts] = await Promise.all([
+                    this.api('GET', '/api/categories'),
+                    this.api('GET', '/api/payment-methods'),
+                    this.api('GET', '/api/channels'),
+                    this.api('GET', '/api/handlers'),
+                    this.api('GET', '/api/item-names'),
+                    this.api('GET', '/api/specifications'),
+                    this.api('GET', '/api/units'),
+                ]);
+                this.categories = cats || [];
+                this.payMethods = pms || [];
+                this.channels = chs || [];
+                this.handlers = hds || [];
+                this.itemNames = itns || [];
+                this.specifications = specs || [];
+                this.units = unts || [];
+            } catch (e) { console.error('加载基础数据失败', e); }
+        },
+
+        // ==================== 自动检索 ====================
+        // 字段 -> 数据源映射
+        _acSource(key) {
+            const map = {
+                cat: this.categories,
+                itemName: this.itemNames,
+                spec: this.specifications,
+                unit: this.units,
+                handler: this.handlers,
+                pay: this.payMethods,
+                channel: this.channels,
+            };
+            return map[key] || [];
+        },
+        // 字段 -> API路径映射
+        _acApi(key) {
+            const map = {
+                cat: '/api/categories',
+                itemName: '/api/item-names',
+                spec: '/api/specifications',
+                unit: '/api/units',
+                handler: '/api/handlers',
+                pay: '/api/payment-methods',
+                channel: '/api/channels',
+            };
+            return map[key];
+        },
+        // 搜索过滤
+        acSearch(key, query) {
+            const st = this.ac[key];
+            st.query = query;
+            const src = this._acSource(key);
+            if (!query) {
+                st.results = src.slice(0, 20);
+                st.noMatch = false;
+            } else {
+                const q = query.toLowerCase();
+                st.results = src.filter(item => item.name.toLowerCase().includes(q));
+                st.noMatch = !src.some(item => item.name.toLowerCase() === q);
+            }
+            st.show = true;
+        },
+        // 选中
+        acSelect(key, item) {
+            if (key === 'cat') {
+                this.expForm.category_id = item.id;
+            } else if (key === 'itemName') {
+                this.expForm.item_name = item.name;
+            } else if (key === 'spec') {
+                this.expForm.specification = item.name;
+            } else if (key === 'unit') {
+                this.expForm.unit = item.name;
+            } else if (key === 'handler') {
+                this.expForm.handler = item.name;
+            } else if (key === 'pay') {
+                this.expForm.payment_method = item.name;
+            } else if (key === 'channel') {
+                this.expForm.purchase_channel = item.name;
+            }
+            this.ac[key].show = false;
+        },
+        // 添加新字典项
+        async acAddNew(key) {
+            const query = this.ac[key].query.trim();
+            if (!query) return;
+            const api = this._acApi(key);
+            try {
+                const body = key === 'cat' ? { name: query, icon: '📦' } : { name: query };
+                const res = await this.api('POST', api, body);
+                // 刷新对应数据
+                await this.loadBaseData();
+                // 自动选中新增项
+                this.acSelect(key, { id: res.id, name: query, icon: '📦' });
+                this.formOk = true;
+                this.formMsg = `已添加到字典: ${query}`;
+                setTimeout(() => this.formMsg = '', 2000);
+            } catch (e) {
+                this.formMsg = e.message;
+                this.formOk = false;
+            }
+        },
+        // 关闭下拉
+        acClose(key) {
+            this.ac[key].show = false;
+        },
+        // 大类显示文本
+        getCatDisplay() {
+            if (!this.expForm.category_id) return '';
+            const cat = this.categories.find(c => c.id == this.expForm.category_id);
+            return cat ? cat.icon + ' ' + cat.name : '';
+        },
+
+        switchTab(key) {
+            this.tab = key;
+            if (key === 'dashboard') this.loadDashboard();
+            if (key === 'list') { 
+                if (!this.categories.length) { 
+                    this.loadBaseData().then(() => this.loadExpenses()); 
+                } else { 
+                    this.loadExpenses(); 
+                } 
+            }
+            if (key === 'stats') this.loadStats();
+            if (key === 'manage' && this.user?.role === 'admin') this.loadUsers();
+        },
+
+        // ==================== 概览 ====================
+        async loadDashboard() {
+            try {
+                this.dashData = await this.api('GET', '/api/stats/summary?month=' + this.dashMonth);
+                // 趋势
+                const trend = await this.api('GET', '/api/stats/trend?months=12');
+                this.renderCatChart();
+                this.renderTrendChart(trend || []);
+            } catch (e) { console.error(e); }
+        },
+
+        renderCatChart() {
+            const canvas = document.getElementById('catChart');
+            if (!canvas) return;
+            if (this.catChart) this.catChart.destroy();
+            const data = this.dashData.by_category || [];
+            const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6'];
+            this.catChart = new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: data.map(d => d.name || '未分类'),
+                    datasets: [{
+                        data: data.map(d => d.total),
+                        backgroundColor: colors.slice(0, data.length),
+                    }]
+                },
+                options: {
+                    responsive: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true } },
+                        tooltip: { callbacks: { label: ctx => ctx.label + ': ¥' + ctx.parsed.toFixed(2) } }
+                    }
+                }
+            });
+        },
+
+        renderTrendChart(trend) {
+            const canvas = document.getElementById('trendChart');
+            if (!canvas) return;
+            if (this.trendChart) this.trendChart.destroy();
+            this.trendChart = new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: trend.map(t => t.month),
+                    datasets: [{
+                        label: '月度支出 (¥)',
+                        data: trend.map(t => t.total),
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { callback: v => '¥' + v } }
+                    }
+                }
+            });
+        },
+
+        // ==================== 记账 ====================
+        resetForm() {
+            this.expForm = {
+                category_id: '', item_name: '', specification: '',
+                quantity: 1, unit: '个', unit_price: 0, total_price: 0,
+                expense_date: new Date().toISOString().split('T')[0],
+                inventory_in: '是', booked: '否', handler: '', invoice: '',
+                payment_method: '', purchase_channel: '', invoice_type: '',
+                accounting_date: new Date().toISOString().split('T')[0],
+                note: ''
+            };
+            this.editingId = null;
+            this.formMsg = '';
+        },
+
+        async inlineSave(item, field) {
+            // 行内保存：把整条记录发给后端
+            const body = {
+                category_id: item.category_id,
+                item_name: item.item_name,
+                specification: item.specification || '',
+                quantity: Number(item.quantity) || 0,
+                unit: item.unit || '个',
+                unit_price: Number(item.unit_price) || 0,
+                total_price: Number(item.quantity) * Number(item.unit_price),
+                expense_date: item.expense_date || '',
+                inventory_in: item.inventory_in || '否',
+                booked: item.booked || '否',
+                handler: item.handler || '',
+                invoice: item.invoice || '无',
+                payment_method: item.payment_method || '',
+                purchase_channel: item.purchase_channel || '',
+                invoice_type: item.invoice_type || '',
+                accounting_date: item.accounting_date || '',
+                note: item.note || ''
+            };
+            try {
+                await this.api('PUT', '/api/expenses/' + item.id, body);
+                item.total_price = body.total_price;
+                item.accounting_date = new Date().toISOString().slice(0, 10);
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+                this.loadExpenses(); // 回滚到服务端数据
+            }
+        },
+        async onQtyPriceChange(item) {
+            // 数量或单价变化时自动重算总价并保存
+            item.total_price = Number(item.quantity) * Number(item.unit_price);
+            await this.inlineSave(item, 'total_price');
+        },
+
+        calcTotal() {
+            const q = parseFloat(this.expForm.quantity) || 0;
+            const p = parseFloat(this.expForm.unit_price) || 0;
+            this.expForm.total_price = Math.round(q * p * 100) / 100;
+        },
+
+        async saveExpense() {
+            // 数据校验
+            const errors = [];
+            if (!this.expForm.category_id) errors.push('大类不能为空');
+            if (!this.expForm.item_name?.trim()) errors.push('物品名称不能为空');
+            if (!this.expForm.handler?.trim()) errors.push('经手人不能为空');
+            if (!this.expForm.payment_method?.trim()) errors.push('付款方式不能为空');
+            if (!this.expForm.purchase_channel?.trim()) errors.push('购买渠道不能为空');
+            if (!this.expForm.quantity || this.expForm.quantity <= 0) errors.push('数量必须大于零');
+            if (!this.expForm.unit_price && !this.expForm.total_price) errors.push('单价或总价不能为零');
+            if (errors.length > 0) {
+                this.formMsg = '⚠️ ' + errors.join('；');
+                this.formOk = false;
+                return;
+            }
+            this.loading = true;
+            this.formMsg = '';
+            try {
+                const body = { ...this.expForm };
+                body.category_id = body.category_id ? parseInt(body.category_id) : null;
+                if (this.editingId) {
+                    await this.api('PUT', '/api/expenses/' + this.editingId, body);
+                    this.formMsg = '✅ 更新成功！';
+                    this.loadExpenses();
+                } else {
+                    await this.api('POST', '/api/expenses', body);
+                    this.formMsg = '✅ 保存成功！';
+                }
+                this.formOk = true;
+                this.resetForm();
+            } catch (e) { this.formMsg = e.message; this.formOk = false; }
+            this.loading = false;
+        },
+
+        async saveQuickExpense() {
+            if (!this.expForm.item_name?.trim()) { alert('物品名称不能为空'); return; }
+            if (!this.expForm.handler?.trim()) { alert('经手人不能为空'); return; }
+            if (!this.expForm.payment_method?.trim()) { alert('付款方式不能为空'); return; }
+            if (!this.expForm.purchase_channel?.trim()) { alert('购买渠道不能为空'); return; }
+            this.loading = true;
+            try {
+                const body = { ...this.expForm };
+                body.category_id = body.category_id ? parseInt(body.category_id) : null;
+                await this.api('POST', '/api/expenses', body);
+                this.resetForm();
+                this.showQuickAdd = false;
+                this.loadExpenses();
+            } catch (e) { alert('保存失败: ' + e.message); }
+            this.loading = false;
+        },
+
+        editExpense(item) {
+            this.editingId = item.id;
+            this.expForm = {
+                category_id: item.category_id || '',
+                item_name: item.item_name || '',
+                specification: item.specification || '',
+                quantity: item.quantity || 1,
+                unit: item.unit || '个',
+                unit_price: item.unit_price || 0,
+                total_price: item.total_price || 0,
+                expense_date: item.expense_date || '',
+                inventory_in: item.inventory_in || '',
+                booked: item.booked || '',
+                handler: item.handler || '',
+                invoice: item.invoice || '',
+                payment_method: item.payment_method || '',
+                purchase_channel: item.purchase_channel || '',
+                invoice_type: item.invoice_type || '',
+                accounting_date: item.accounting_date || '',
+                note: item.note || '',
+            };
+            this.tab = 'add';
+        },
+
+        async deleteExpense(id) {
+            if (!confirm('确定删除这条记录？')) return;
+            try {
+                await this.api('DELETE', '/api/expenses/' + id);
+                this.loadExpenses();
+            } catch (e) { alert(e.message); }
+        },
+
+        // ==================== 审核操作 ====================
+        async reviewItem(id) {
+            try {
+                await this.api('POST', '/api/expenses/' + id + '/review');
+                const item = this.expenses.items.find(i => i.id === id);
+                if (item) item.reviewed = true;
+            } catch (e) { alert(e.message); }
+        },
+        async unreviewItem(id) {
+            if (!confirm('确定取消审核？取消后普通用户可修改此记录')) return;
+            try {
+                await this.api('POST', '/api/expenses/' + id + '/unreview');
+                const item = this.expenses.items.find(i => i.id === id);
+                if (item) item.reviewed = false;
+            } catch (e) { alert(e.message); }
+        },
+        async batchReview() {
+            const unreviewed = (this.expenses.items || []).filter(i => !i.reviewed).map(i => i.id);
+            if (!unreviewed.length) { alert('当前页没有待审核的记录'); return; }
+            if (!confirm(`确定审核当前页 ${unreviewed.length} 条未审核记录？`)) return;
+            try {
+                await this.api('POST', '/api/expenses/batch-review', { ids: unreviewed });
+                this.loadExpenses();
+            } catch (e) { alert(e.message); }
+        },
+
+        async batchDelete() {
+            const ids = this.selectedIds;
+            if (!ids.length) return;
+            const reviewed = (this.expenses.items || []).filter(i => i.reviewed && ids.includes(i.id));
+            const unreviewed = ids.filter(id => !reviewed.some(r => r.id === id));
+            let msg = `确定删除 ${unreviewed.length} 条记录？`;
+            if (reviewed.length) msg = `已审核的 ${reviewed.length} 条将跳过，确定删除其余 ${unreviewed.length} 条？`;
+            if (!unreviewed.length) { alert('选中的记录均为已审核状态，不可删除'); return; }
+            if (!confirm(msg)) return;
+            try {
+                const data = await this.api('POST', '/api/expenses/batch-delete', { ids: unreviewed });
+                this.selectedIds = [];
+                this.loadExpenses();
+            } catch (e) { alert(e.message); }
+        },
+
+        // ==================== 明细 ====================
+        async loadExpenses() {
+            try {
+                const params = new URLSearchParams();
+                params.set('page', this.filter.page);
+                params.set('page_size', this.filter.page_size);
+                if (this.filter.category_id) params.set('category_id', this.filter.category_id);
+                if (this.filter.handler) params.set('handler', this.filter.handler);
+                if (this.filter.payment_method) params.set('payment_method', this.filter.payment_method);
+                if (this.filter.purchase_channel) params.set('purchase_channel', this.filter.purchase_channel);
+                if (this.filter.search) params.set('search', this.filter.search);
+                if (this.filter.start_date) params.set('start_date', this.filter.start_date);
+                if (this.filter.end_date) params.set('end_date', this.filter.end_date);
+                if (this.sortField) {
+                    params.set('sort_field', this.sortField);
+                    params.set('sort_dir', this.sortDir);
+                }
+                this.expenses = await this.api('GET', '/api/expenses?' + params.toString()) || { items: [], total: 0 };
+                this.selectedIds = [];
+            } catch (e) { console.error(e); }
+        },
+
+        resetFilter() {
+            this.filter = { page: 1, page_size: 30, category_id: '', handler: '', payment_method: '', purchase_channel: '', search: '', start_date: '', end_date: '' };
+            this.sortField = '';
+            this.sortDir = 'desc';
+            this.loadExpenses();
+        },
+
+        toggleSort(field) {
+            if (this.sortField === field) {
+                this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.sortField = field;
+                this.sortDir = 'desc';
+            }
+            this.filter.page = 1;
+            this.loadExpenses();
+        },
+
+        sortIcon(field) {
+            if (this.sortField !== field) return '↕';
+            return this.sortDir === 'asc' ? '↑' : '↓';
+        },
+
+        get pageTotal() {
+            return (this.expenses.items || []).reduce((s, i) => s + (i.total_price || 0), 0);
+        },
+
+        // ==================== 统计 ====================
+        async loadStats() {
+            try {
+                this.statsData = await this.api('GET', '/api/stats/summary?month=' + this.statsMonth) || {};
+            } catch (e) { console.error(e); }
+        },
+
+        async exportReport(fmt) {
+            this.exporting = true;
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/reports/monthly?month=' + this.statsMonth + '&format=' + fmt, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) throw new Error('导出失败');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '月度报表_' + this.statsMonth + (fmt === 'excel' ? '.xlsx' : '.pdf');
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (e) { alert(e.message); }
+            this.exporting = false;
+        },
+
+        // ==================== 管理 ====================
+        async addItem(type) {
+            let name, body;
+            if (type === 'categories') {
+                if (!this.newCat.name) return;
+                name = this.newCat.name;
+                body = { name: this.newCat.name, icon: this.newCat.icon || '📦' };
+            } else if (type === 'payment-methods') {
+                if (!this.newPM) return;
+                name = this.newPM;
+                body = { name: this.newPM };
+            } else if (type === 'channels') {
+                if (!this.newCh) return;
+                name = this.newCh;
+                body = { name: this.newCh };
+            } else if (type === 'handlers') {
+                if (!this.newHandler) return;
+                name = this.newHandler;
+                body = { name: this.newHandler };
+            } else if (type === 'item-names') {
+                if (!this.newItemName) return;
+                name = this.newItemName;
+                body = { name: this.newItemName };
+            } else if (type === 'specifications') {
+                if (!this.newSpec) return;
+                name = this.newSpec;
+                body = { name: this.newSpec };
+            } else if (type === 'units') {
+                if (!this.newUnit) return;
+                name = this.newUnit;
+                body = { name: this.newUnit };
+            }
+            try {
+                await this.api('POST', '/api/' + type, body);
+                if (type === 'categories') this.newCat = { name: '', icon: '📦' };
+                else if (type === 'payment-methods') this.newPM = '';
+                else if (type === 'channels') this.newCh = '';
+                else if (type === 'handlers') this.newHandler = '';
+                else if (type === 'item-names') this.newItemName = '';
+                else if (type === 'specifications') this.newSpec = '';
+                else if (type === 'units') this.newUnit = '';
+                this.loadBaseData();
+            } catch (e) { alert(e.message); }
+        },
+
+        async deleteItem(type, id) {
+            if (!confirm('确定删除？')) return;
+            try {
+                await this.api('DELETE', '/api/' + type + '/' + id);
+                this.loadBaseData();
+            } catch (e) { alert(e.message); }
+        },
+
+        // ==================== 导入 ====================
+        doImport() {
+            if (!this.importFile) return;
+            this.loading = true;
+            this.importMsg = '';
+            this.importProgress = 0;
+            this.importStatus = '上传中...';
+
+            const fd = new FormData();
+            fd.append('file', this.importFile);
+            const token = localStorage.getItem('token');
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    this.importProgress = Math.round((e.loaded / e.total) * 100);
+                }
+            };
+
+            xhr.upload.onload = () => {
+                this.importProgress = 100;
+                this.importStatus = '等待响应...';
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        if (data.task_id) {
+                            this.importProgress = 100;
+                            this.importStatus = '等待响应...';
+                            this._pollImportProgress(data.task_id, token);
+                        } else {
+                            // 兼容旧版直接返回结果
+                            this.importOk = true;
+                            this.importProgress = 100;
+                            this.importStatus = '导入完成';
+                            this.importMsg = data.message + ' (工作表: ' + (data.sheets || []).join(', ') + ')';
+                            this.loadBaseData();
+                            this.loadExpenses();
+                            this.loading = false;
+                        }
+                    } catch (e) {
+                        this.importOk = false;
+                        this.importMsg = '响应解析失败';
+                        this.loading = false;
+                    }
+                } else {
+                    try {
+                        const err = JSON.parse(xhr.responseText);
+                        this.importOk = false;
+                        this.importMsg = err.detail || '导入失败';
+                    } catch (e) {
+                        this.importOk = false;
+                        this.importMsg = '导入失败 (' + xhr.status + ')';
+                    }
+                    this.loading = false;
+                }
+            };
+
+            xhr.onerror = () => {
+                this.importOk = false;
+                this.importMsg = '网络错误，请重试';
+                this.loading = false;
+            };
+
+            xhr.open('POST', '/api/import/excel');
+            xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+            xhr.send(fd);
+        },
+
+        async _pollImportProgress(taskId, token) {
+            this.importProgress = 0;
+            this.importStatus = '正在处理...';
+            while (true) {
+                await new Promise(r => setTimeout(r, 300));
+                try {
+                    const res = await fetch('/api/import/progress/' + taskId, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    const data = await res.json();
+                    if (data.total_rows > 0) {
+                        const pct = Math.min(100, Math.round((data.processed / data.total_rows) * 100));
+                        this.importProgress = pct;
+                        if (data.processed === 0) {
+                            this.importStatus = '正在读取数据...';
+                        } else {
+                            this.importStatus = '处理中 ' + data.processed + '/' + data.total_rows + ' 条';
+                        }
+                    } else {
+                        this.importStatus = '正在扫描...';
+                    }
+                    if (data.status === 'done') {
+                        const r = data.result;
+                        this.importOk = true;
+                        this.importProgress = 100;
+                        this.importStatus = '导入完成';
+                        this.importMsg = r.message + ' (工作表: ' + (r.sheets || []).join(', ') + ')';
+                        this.loadBaseData();
+                        this.loadExpenses();
+                        this.loading = false;
+                        return;
+                    }
+                    if (data.status === 'error') {
+                        this.importOk = false;
+                        this.importMsg = data.result?.detail || '导入失败';
+                        this.loading = false;
+                        return;
+                    }
+                } catch (e) {
+                    this.importOk = false;
+                    this.importMsg = '获取进度失败: ' + e.message;
+                    this.loading = false;
+                    return;
+                }
+            }
+        },
+
+        // ==================== 备份 ====================
+        async saveBackupCfg() {
+            try {
+                await this.api('POST', '/api/backup/config', this.backupCfg);
+                this.backupOk = true;
+                this.backupMsg = '配置已保存';
+            } catch (e) { this.backupOk = false; this.backupMsg = e.message; }
+        },
+
+        async doBackup() {
+            try {
+                const data = await this.api('POST', '/api/backup/now');
+                this.backupOk = true;
+                this.backupMsg = data.message || '备份成功';
+            } catch (e) { this.backupOk = false; this.backupMsg = e.message; }
+        },
+
+        async doRestore() {
+            if (!confirm('确定从 WebDAV 恢复数据？当前数据将被覆盖！')) return;
+            try {
+                const data = await this.api('POST', '/api/restore');
+                this.backupOk = true;
+                this.backupMsg = data.message || '恢复成功';
+                location.reload();
+            } catch (e) { this.backupOk = false; this.backupMsg = e.message; }
+        },
+
+        // ==================== 本地备份 ====================
+        async loadBackupStatus() {
+            try {
+                const data = await this.api('GET', '/api/backup/status');
+                if (data) Object.assign(this.localBackup, data);
+            } catch (e) {}
+        },
+        async downloadDb() {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/backup/download', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) { this.localBackupOk = false; this.localBackupMsg = '下载失败'; return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'bookkeeper.db'; a.click();
+            URL.revokeObjectURL(url);
+        },
+        async uploadDb(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!confirm('确定用此文件恢复数据库？当前数据将被覆盖！')) return;
+            this.backupUploading = true;
+            this.localBackupMsg = '';
+            try {
+                const token = localStorage.getItem('token');
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await fetch('/api/backup/upload', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '上传失败');
+                this.localBackupOk = true;
+                this.localBackupMsg = data.message;
+                this.loadBackupStatus();
+            } catch (e) { this.localBackupOk = false; this.localBackupMsg = e.message; }
+            this.backupUploading = false;
+            event.target.value = '';
+        },
+        async downloadBak(filename) {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/backup/bak-files/' + filename, { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) { alert('下载失败'); return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            URL.revokeObjectURL(url);
+        },
+        async deleteBak(filename) {
+            if (!confirm('确定删除 ' + filename + '？')) return;
+            try {
+                await this.api('DELETE', '/api/backup/bak-files/' + filename);
+                this.localBackup.bak_files = this.localBackup.bak_files.filter(f => f.filename !== filename);
+            } catch (e) { alert(e.message); }
+        },
+
+        // ==================== 用户管理 ====================
+        get pendingCount() {
+            return (this.users || []).filter(u => u.status === 'pending').length;
+        },
+        async loadUsers() {
+            try {
+                this.users = await this.api('GET', '/api/users') || [];
+            } catch (e) { console.error(e); }
+        },
+        async approveUser(userId) {
+            try {
+                const res = await this.api('POST', '/api/users/' + userId + '/approve');
+                alert(res.message);
+                this.loadUsers();
+            } catch (e) { alert(e.message); }
+        },
+        async deleteUser(userId, username) {
+            if (!confirm(`确定删除用户 "${username}"？此操作不可撤销`)) return;
+            try {
+                const res = await this.api('DELETE', '/api/users/' + userId);
+                alert(res.message);
+                this.loadUsers();
+            } catch (e) { alert(e.message); }
+        },
+
+        // ==================== 密码管理 ====================
+        async doChangePwd() {
+            this.pwdMsg = '';
+            this.pwdOk = false;
+            if (!this.pwdForm.old || !this.pwdForm.new1 || !this.pwdForm.new2) {
+                this.pwdMsg = '请填写完整'; return;
+            }
+            if (this.pwdForm.new1 !== this.pwdForm.new2) {
+                this.pwdMsg = '两次新密码不一致'; return;
+            }
+            if (this.pwdForm.new1.length < 4) {
+                this.pwdMsg = '新密码至少4位'; return;
+            }
+            try {
+                const res = await this.api('POST', '/api/change-password', {
+                    old_password: this.pwdForm.old,
+                    new_password: this.pwdForm.new1,
+                });
+                this.pwdOk = true;
+                this.pwdMsg = res.message;
+                this.pwdForm = { old: '', new1: '', new2: '' };
+            } catch (e) {
+                this.pwdMsg = e.message;
+            }
+        },
+        async disableUser(userId, username) {
+            if (!confirm(`确定禁用用户 "${username}"？`)) return;
+            try {
+                const res = await this.api('POST', '/api/users/' + userId + '/disable');
+                alert(res.message);
+                this.loadUsers();
+            } catch (e) { alert(e.message); }
+        },
+        async enableUser(userId, username) {
+            try {
+                const res = await this.api('POST', '/api/users/' + userId + '/enable');
+                alert(res.message);
+                this.loadUsers();
+            } catch (e) { alert(e.message); }
+        },
+        async resetPwd(userId) {
+            const pwd = prompt('请输入新密码（至少4位）');
+            if (!pwd || pwd.length < 4) { alert('密码至少4位'); return; }
+            try {
+                const res = await this.api('POST', '/api/users/' + userId + '/reset-password', { new_password: pwd });
+                alert(res.message);
+            } catch (e) { alert(e.message); }
+        },
+    };
+}
+</script>
+</body>
+</html>
